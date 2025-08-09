@@ -1,25 +1,21 @@
-"""
-Tests for core PyBravo functionality
-"""
-
 import pytest
-from pybravo import BravoController
+from pybravo import BravoDriver
 from pybravo.exceptions import BravoConnectionError, BravoCommandError
 
 
-class TestBravoController:
-    """Test cases for BravoController"""
+class TestBravoDriver:
+    """Test cases for BravoDriver"""
 
     def test_init(self):
         """Test controller initialization"""
-        controller = BravoController()
-        assert controller.port is None
+        controller = BravoDriver()
+        assert controller.profile is None
         assert controller.timeout == 30.0
         assert not controller.is_connected()
 
     def test_init_with_params(self):
         """Test controller initialization with parameters"""
-        controller = BravoController(port="/dev/ttyUSB0", timeout=60.0)
+        controller = BravoDriver(port="/dev/ttyUSB0", timeout=60.0)
         assert controller.port == "/dev/ttyUSB0"
         assert controller.timeout == 60.0
 

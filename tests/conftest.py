@@ -3,19 +3,19 @@ Pytest configuration and fixtures
 """
 
 import pytest
-from pybravo import BravoController
+from pybravo import BravoDriver
 
 
 @pytest.fixture
 def controller():
-    """Create a BravoController instance for testing"""
-    return BravoController()
+    """Create a driver instance for testing"""
+    return BravoDriver()
 
 
 @pytest.fixture
 def connected_controller():
     """Create a connected BravoController instance for testing"""
-    controller = BravoController()
+    controller = BravoDriver()
     # Mock connection for testing
     controller._connected = True
     return controller
