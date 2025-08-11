@@ -92,11 +92,10 @@ class BravoDriver:
                 logging.warning(f"Error during disconnect: {e}")
 
     def is_connected(self) -> bool:
-        """Check connection status"""
         return self._connected and self.client is not None
 
     @sta_com_method
-    def home(self) -> None:
+    def home_w(self) -> None:
         try:
             if not self.is_connected():
                 raise BravoCommandError("Device not connected")
@@ -104,6 +103,54 @@ class BravoDriver:
             self.client.HomeW()
         except Exception as e:
             raise BravoCommandError(f"Failed to home device: {e}")
+
+    @sta_com_method
+    def home_xyz(self) -> None:
+        try:
+            if not self.is_connected():
+                raise BravoCommandError("Device not connected")
+            logging.info("Homing XYZ operation started")
+            self.client.HomeXYZ()
+        except Exception as e:
+            raise BravoCommandError(f"Failed to home XYZ: {e}")
+
+    @sta_com_method
+    def show_about_box(self) -> None:
+        """Show the About box"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            self.client.ShowAboutBox()
+        except Exception as e:
+            raise BravoCommandError(f"Failed to show About box: {e}")
+
+    @sta_com_method
+    def aspirate(
+        self,
+        volume: float,
+        plate_location: int,
+        distance_from_well_bottom: float = 0.0,
+        pre_aspirate_volume: float = 0.0,
+        post_aspirate_volume: float = 0.0,
+        retract_distance_per_microliter: float = 0.0,
+    ) -> None:
+        """Aspirate a specified volume from a well"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            logging.info(f"Aspirating {volume} uL from plate location {plate_location}")
+            self.client.Aspirate(
+                volume,
+                pre_aspirate_volume,
+                post_aspirate_volume,
+                plate_location,
+                distance_from_well_bottom,
+                retract_distance_per_microliter,
+            )
+        except Exception as e:
+            raise BravoCommandError(f"Failed to aspirate: {e}")
 
     def show_diagnostics(self) -> None:
         """Show diagnostics information"""
@@ -114,14 +161,6 @@ class BravoDriver:
             self.client.ShowDiagsDialog(True, 1)
         except Exception as e:
             raise BravoCommandError(f"Failed to get diagnostics: {e}")
-
-    def execute_com_operation(self, operation: Callable[[], T]) -> T:
-        """Execute any COM operation in STA context"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-
-        with STAComManager():
-            return operation()
 
     def __enter__(self):
         """Context manager support"""
@@ -137,8 +176,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     try:
         with BravoDriver() as driver:
-            # driver.show_diagnostics()
-            driver.home()
+            driver.show_diagnostics()
+            # driver.home()
 
     except Exception as e:
         logging.error(f"Error: {e}")
