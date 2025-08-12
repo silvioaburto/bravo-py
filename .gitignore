@@ -1,0 +1,10 @@
+__pycache__/
+.vscode/ 
+*log
+
+
+# python
+.ruff_cache
+**/*.egg-info
+.mypy_cache
+build/*

@@ -3,10 +3,10 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "your-package-name"
+name = "bravo-py"
 version = "0.1.0"
-authors = [{name = "Silvio Ortiz", email = ""}]
-description = "A short description"
+authors = [{name = "Silvio Ortiz", email = "clvoaburto@gmail.com"}]
+description = "Python driver with lower level control to Bravo liquid handler"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
