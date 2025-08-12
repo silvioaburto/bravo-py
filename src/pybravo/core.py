@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any, Callable, TypeVar, List
 from functools import wraps
 import pythoncom
 import clr
+from .utils import is_admin
 
 # Handle imports
 try:
@@ -65,6 +66,11 @@ class BravoDriver:
         self.simulation_mode = simulation_mode
         self._connected = False
         self.client = None
+
+        if is_admin():
+            logging.warning(
+                "Running without admin privileges may limit driver's functionality. "
+            )
 
     @sta_com_method
     def connect(self) -> bool:
@@ -545,28 +551,3 @@ class BravoDriver:
         self.disconnect()
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    try:
-        with BravoDriver(profile="bravo") as driver:
-            driver.show_diagnostics()
-            driver.show_labware_editor()
-            driver.aspirate(
-                volume=100,
-                plate_location=1,
-                distance_from_well_bottom=2.0,
-                pre_aspirate_volume=10.0,
-                post_aspirate_volume=5.0,
-                retract_distance_per_microliter=0.1,
-            )
-
-            driver.dispense(
-                volume=100,
-                plate_location=1,
-                distance_from_well_bottom=2.0,
-                pre_dispense_volume=10.0,
-                post_dispense_volume=5.0,
-                retract_distance_per_microliter=0.1,
-            )
-    except Exception as e:
-        logging.error(f"Error: {e}")
