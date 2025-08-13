@@ -124,6 +124,7 @@ class BravoDriver:
         else:
             logging.warning("Bravo control already exists")
 
+    #TODO: Each method will have a simulation handler 
     def _handle_simulation(self, method_name: str, *args, **kwargs) -> Any:
         """Handle simulation logic for various methods"""
         if method_name in [
@@ -719,7 +720,7 @@ class BravoDriver:
         pump_in_flow_speed: float = 0.0,
         pump_out_flow_speed: float = 0.0,
     ) -> None:
-        """Wash a specified volume in a well"""
+        """Wash Tips"""
         if not self.is_connected():
             raise BravoCommandError("Device not connected")
         try:

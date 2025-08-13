@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bravo Deck Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 15px 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background: #44ff44;
+            box-shadow: 0 0 10px #44ff44;
+        }
+
+        .deck-container {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+
+        .deck-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 20px;
+            aspect-ratio: 1.5;
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .deck-position {
+            background: linear-gradient(145deg, #f0f0f0, #d0d0d0);
+            border-radius: 15px;
+            border: 3px solid #ccc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.3s ease;
+            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
+            color: #333;
+            min-height: 120px;
+        }
+
+        .deck-position:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .position-label {
+            position: absolute;
+            top: 8px;
+            left: 12px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #666;
+        }
+
+        .labware {
+            width: 80%;
+            height: 60%;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .labware.plate-96 {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            color: white;
+        }
+
+        .labware.plate-384 {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+            color: white;
+        }
+
+        .labware.tips {
+            background: linear-gradient(45deg, #45b7d1, #3498db);
+            color: white;
+        }
+
+        .labware.reservoir {
+            background: linear-gradient(45deg, #f39c12, #e67e22);
+            color: white;
+        }
+
+        .labware.empty {
+            background: transparent;
+            border: 2px dashed #999;
+            color: #999;
+        }
+
+        .labware.active {
+            border: 3px solid #ffd700;
+            box-shadow: 0 0 25px rgba(255, 215, 0, 0.8), 0 0 50px rgba(255, 215, 0, 0.4);
+            transform: scale(1.05);
+            animation: operationGlow 2s ease-in-out;
+        }
+
+        .deck-position.aspirating {
+            animation: aspirateGlow 1.5s ease-in-out;
+        }
+
+        .deck-position.dispensing {
+            animation: dispenseGlow 1.5s ease-in-out;
+        }
+
+        .deck-position.moving {
+            animation: moveGlow 1s ease-in-out;
+        }
+
+        @keyframes operationGlow {
+            0%, 100% { 
+                box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+            }
+            50% { 
+                box-shadow: 0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 215, 0, 0.6);
+            }
+        }
+
+        @keyframes aspirateGlow {
+            0%, 100% { 
+                box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
+            }
+            50% { 
+                box-shadow: 0 0 30px rgba(52, 152, 219, 0.8), 0 0 60px rgba(52, 152, 219, 0.4);
+                border-color: #3498db;
+            }
+        }
+
+        @keyframes dispenseGlow {
+            0%, 100% { 
+                box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
+            }
+            50% { 
+                box-shadow: 0 0 30px rgba(46, 204, 113, 0.8), 0 0 60px rgba(46, 204, 113, 0.4);
+                border-color: #2ecc71;
+            }
+        }
+
+        @keyframes moveGlow {
+            0%, 100% { 
+                box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
+            }
+            50% { 
+                box-shadow: 0 0 25px rgba(155, 89, 182, 0.8), 0 0 50px rgba(155, 89, 182, 0.4);
+                border-color: #9b59b6;
+            }
+        }
+
+        .controls {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            margin: 0 10px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .info-panel {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .log-entry {
+            background: rgba(255,255,255,0.05);
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 8px;
+            border-left: 4px solid #4ecdc4;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .volume-indicator {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: bold;
+        }
+
+        .loading {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧪 Bravo Deck Visualizer</h1>
+        </div>
+
+        <div class="status-bar">
+            <div class="connection-status">
+                <div class="status-dot" id="connectionDot"></div>
+                <span id="connectionText">Disconnected</span>
+            </div>
+            <div id="currentOperation">Ready</div>
+            <div id="timestamp">--:--:--</div>
+        </div>
+
+        <div class="deck-container">
+            <div class="deck-grid" id="deckGrid">
+                <!-- Positions 1-9 will be generated by JavaScript -->
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn" onclick="connectWebSocket()">Connect</button>
+            <button class="btn" onclick="simulateTransfer()">Simulate Transfer</button>
+            <button class="btn" onclick="clearDeck()">Clear Deck</button>
+            <button class="btn" onclick="loadDefaultLayout()">Load Default</button>
+        </div>
+
+        <div class="info-panel">
+            <h3>Activity Log</h3>
+            <div id="activityLog"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let deckState = {};
+
+        // Initialize deck positions
+        function initializeDeck() {
+            const deckGrid = document.getElementById('deckGrid');
+            
+            for (let i = 1; i <= 9; i++) {
+                const position = document.createElement('div');
+                position.className = 'deck-position';
+                position.id = `position-${i}`;
+                position.innerHTML = `
+                    <div class="position-label">${i}</div>
+                    <div class="labware empty" id="labware-${i}">Empty</div>
+                    <div class="volume-indicator" id="volume-${i}">0 μL</div>
+                `;
+                deckGrid.appendChild(position);
+                
+                deckState[i] = {
+                    labware: 'empty',
+                    volume: 0,
+                    active: false
+                };
+            }
+        }
+
+        // WebSocket connection
+        function connectWebSocket() {
+            try {
+                ws = new WebSocket('ws://localhost:8765');
+                
+                ws.onopen = function() {
+                    updateConnectionStatus(true);
+                    addLogEntry('Connected to Bravo server');
+                };
+                
+                ws.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    handleServerMessage(data);
+                };
+                
+                ws.onclose = function() {
+                    updateConnectionStatus(false);
+                    addLogEntry('Disconnected from server');
+                };
+                
+                ws.onerror = function() {
+                    updateConnectionStatus(false);
+                    addLogEntry('Connection error');
+                };
+            } catch (error) {
+                addLogEntry('Failed to connect: ' + error.message);
+            }
+        }
+
+        // Handle messages from server
+        function handleServerMessage(data) {
+            switch (data.type) {
+                case 'deck_update':
+                    updateDeckState(data.deck);
+                    break;
+                case 'operation':
+                    handleOperation(data);
+                    break;
+                case 'aspirate_operation':
+                    showOperationGlow(data.position, 'aspirating');
+                    break;
+                case 'dispense_operation':
+                    showOperationGlow(data.position, 'dispensing');
+                    break;
+                case 'move_operation':
+                    showOperationGlow(data.position, 'moving');
+                    break;
+            }
+        }
+
+        // Show operation glow effect
+        function showOperationGlow(position, operationType) {
+            const positionElement = document.getElementById(`position-${position}`);
+            if (positionElement) {
+                // Remove any existing operation classes
+                positionElement.classList.remove('aspirating', 'dispensing', 'moving');
+                
+                // Add the new operation class
+                positionElement.classList.add(operationType);
+                
+                // Remove the class after animation completes
+                setTimeout(() => {
+                    positionElement.classList.remove(operationType);
+                }, operationType === 'moving' ? 1000 : 1500);
+                
+                // Log the operation
+                const operationNames = {
+                    'aspirating': 'Aspirating',
+                    'dispensing': 'Dispensing',
+                    'moving': 'Moving to'
+                };
+                addLogEntry(`${operationNames[operationType]} at position ${position}`);
+            }
+        }
+
+        // Update deck state
+        function updateDeckState(deck) {
+            for (const [position, state] of Object.entries(deck)) {
+                const labwareElement = document.getElementById(`labware-${position}`);
+                const volumeElement = document.getElementById(`volume-${position}`);
+                
+                if (labwareElement) {
+                    labwareElement.className = `labware ${state.labware}`;
+                    labwareElement.textContent = state.labware === 'empty' ? 'Empty' : state.labware;
+                    
+                    if (state.active) {
+                        labwareElement.classList.add('active');
+                    }
+                }
+                
+                if (volumeElement) {
+                    volumeElement.textContent = `${state.volume} μL`;
+                }
+                
+                deckState[position] = state;
+            }
+        }
+
+        // Handle operations
+        function handleOperation(data) {
+            document.getElementById('currentOperation').textContent = data.operation;
+            addLogEntry(`${data.operation}: ${data.details || ''}`);
+            
+            // Show glow effects for affected positions
+            if (data.positions) {
+                data.positions.forEach(pos => {
+                    showOperationGlow(pos, 'moving');
+                });
+            }
+        }
+
+        // Utility functions
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function addLogEntry(message) {
+            const log = document.getElementById('activityLog');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            log.insertBefore(entry, log.firstChild);
+            
+            // Keep only last 20 entries
+            while (log.children.length > 20) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        function updateTimestamp() {
+            document.getElementById('timestamp').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Demo functions
+        function simulateTransfer() {
+            const fromPos = Math.floor(Math.random() * 9) + 1;
+            const toPos = Math.floor(Math.random() * 9) + 1;
+            const volume = Math.floor(Math.random() * 500) + 50;
+            
+            // Show aspirate glow
+            showOperationGlow(fromPos, 'aspirating');
+            
+            // Show dispense glow after a delay
+            setTimeout(() => {
+                showOperationGlow(toPos, 'dispensing');
+            }, 1000);
+            
+            addLogEntry(`Simulated transfer: ${volume} μL from position ${fromPos} to ${toPos}`);
+        }
+
+        function clearDeck() {
+            for (let i = 1; i <= 9; i++) {
+                deckState[i] = { labware: 'empty', volume: 0, active: false };
+            }
+            updateDeckState(deckState);
+            addLogEntry('Deck cleared');
+        }
+
+        function loadDefaultLayout() {
+            const defaultLayout = {
+                1: { labware: 'tips', volume: 0, active: false },
+                2: { labware: 'plate-96', volume: 150000, active: false },
+                3: { labware: 'plate-96', volume: 75000, active: false },
+                4: { labware: 'reservoir', volume: 500000, active: false },
+                5: { labware: 'empty', volume: 0, active: false },
+                6: { labware: 'plate-384', volume: 50000, active: false },
+                7: { labware: 'empty', volume: 0, active: false },
+                8: { labware: 'plate-96', volume: 0, active: false },
+                9: { labware: 'tips', volume: 0, active: false }
+            };
+            updateDeckState(defaultLayout);
+            addLogEntry('Default layout loaded');
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDeck();
+            loadDefaultLayout();
+            setInterval(updateTimestamp, 1000);
+            updateTimestamp();
+            
+            // Auto-connect to WebSocket after page loads
+            setTimeout(() => {
+                connectWebSocket();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

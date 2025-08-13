@@ -1,24 +1,34 @@
 import logging
-from pybravo import BravoDriver
+from pybravo.visualizer_enhanced import (
+    BravoDriverWithVisualizer,
+    start_visualizer_server,
+)
+import time
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    try:
-        with BravoDriver(simulation_mode=True) as driver:
 
-            driver.aspirate(100.0, plate_location=1)
-            driver.dispense(50.0, plate_location=2)
-            # Check simulation state
+    # Start visualizer server
+    start_visualizer_server()
+
+    try:
+        with BravoDriverWithVisualizer(
+            simulation_mode=True, with_visualizer=True
+        ) as driver:
+            driver.tips_on(plate_location=1)
+            time.sleep(2)
+            driver.aspirate(
+                100.0, plate_location=2
+            )  # Should show blue glow at position 2
+            time.sleep(2)
+            driver.dispense(
+                50.0, plate_location=8
+            )  # Should show green glow at position 8
+            time.sleep(2)
+            driver.tips_off(plate_location=9)  # Should show purple glow at position 9
+
             state = driver.get_simulation_state()
             print(f"Remaining liquid: {state['liquid_volume']}")
 
-            driver.dispense(
-                volume=100,
-                empty_tips=True,
-                blow_out_volume=10.0,
-                plate_location=2,
-                distance_from_well_bottom=2.0,
-                retract_distance_per_microliter=0.1,
-            )
     except Exception as e:
         logging.error(f"Error: {e}")
