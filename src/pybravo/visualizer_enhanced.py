@@ -95,7 +95,9 @@ class VisualizerMixin:
                 logger.error(f"Visualizer connection error: {e}")
                 break
 
-    def _send_to_visualizer(self, operation: str, position: int, volume: float = 0):
+    def _send_to_visualizer(
+        self, operation: str, position: int, volume: float = 0, labware_type: str = None
+    ):
         """Send operation to visualizer"""
         if not self.with_visualizer or not self._ws_client or not self._ws_loop:
             return
@@ -106,6 +108,9 @@ class VisualizerMixin:
             "position": position,
             "volume": volume,
         }
+
+        if labware_type:
+            message["labware_type"] = labware_type
 
         try:
             future = asyncio.run_coroutine_threadsafe(
@@ -128,6 +133,7 @@ def visualizer_method(operation_name: str):
                     # Try to get plate_location from different argument positions
                     plate_location = None
                     volume = 0
+                    labware_type = None
 
                     if operation_name in ["aspirate", "dispense"]:
                         if len(args) >= 2:
@@ -141,9 +147,27 @@ def visualizer_method(operation_name: str):
                             plate_location = args[0]
                         else:
                             plate_location = kwargs.get("plate_location", 1)
+                    elif operation_name == "set_labware":
+                        if len(args) >= 2:
+                            plate_location = args[0]
+                            labware_type = args[1]
+                        else:
+                            plate_location = kwargs.get("plate_location", 1)
+                            labware_type = kwargs.get("labware_type", "empty")
 
                     if plate_location is not None:
-                        self._send_to_visualizer(operation_name, plate_location, volume)
+                        if operation_name == "set_labware":
+                            # Special handling for set_labware
+                            self._send_to_visualizer(
+                                "set_labware",
+                                plate_location,
+                                0,
+                                labware_type=labware_type,
+                            )
+                        else:
+                            self._send_to_visualizer(
+                                operation_name, plate_location, volume
+                            )
 
                 except Exception:
                     pass  # Fail silently if visualization fails
@@ -188,6 +212,10 @@ class BravoDriverWithVisualizer(VisualizerMixin, BravoDriver):
     @visualizer_method("move_to_location")
     def move_to_location(self, *args, **kwargs):
         return super().move_to_location(*args, **kwargs)
+
+    @visualizer_method("set_labware")
+    def set_labware_at_location(self, *args, **kwargs):
+        return super().set_labware_at_location(*args, **kwargs)
 
 
 def start_visualizer_server(demo=False, port=8765, http_port=8080):

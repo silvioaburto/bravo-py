@@ -124,7 +124,7 @@ class BravoDriver:
         else:
             logging.warning("Bravo control already exists")
 
-    #TODO: Each method will have a simulation handler 
+    #Each method will hav
     def _handle_simulation(self, method_name: str, *args, **kwargs) -> Any:
         """Handle simulation logic for various methods"""
         if method_name in [

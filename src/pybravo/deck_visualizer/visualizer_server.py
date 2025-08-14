@@ -406,6 +406,9 @@ class BravoDeckVisualizer:
                 f"WebSocket port {original_ws_port} in use, using {self.port} instead"
             )
 
+        # Setup default deck layout when server starts
+        await self.setup_default_deck()
+
         # Start HTTP file server if requested
         if serve_files:
             script_dir = Path(__file__).parent

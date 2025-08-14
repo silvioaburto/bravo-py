@@ -306,7 +306,6 @@
             <button class="btn" onclick="connectWebSocket()">Connect</button>
             <button class="btn" onclick="simulateTransfer()">Simulate Transfer</button>
             <button class="btn" onclick="clearDeck()">Clear Deck</button>
-            <button class="btn" onclick="loadDefaultLayout()">Load Default</button>
         </div>
 
         <div class="info-panel">
@@ -509,6 +508,22 @@
             addLogEntry('Deck cleared');
         }
 
+        function simulateTransfer() {
+            const fromPos = Math.floor(Math.random() * 9) + 1;
+            const toPos = Math.floor(Math.random() * 9) + 1;
+            const volume = Math.floor(Math.random() * 500) + 50;
+            
+            // Show aspirate glow
+            showOperationGlow(fromPos, 'aspirating');
+            
+            // Show dispense glow after a delay
+            setTimeout(() => {
+                showOperationGlow(toPos, 'dispensing');
+            }, 1000);
+            
+            addLogEntry(`Simulated transfer: ${volume} μL from position ${fromPos} to ${toPos}`);
+        }
+
         function loadDefaultLayout() {
             const defaultLayout = {
                 1: { labware: 'tips', volume: 0, active: false },
@@ -528,7 +543,6 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             initializeDeck();
-            loadDefaultLayout();
             setInterval(updateTimestamp, 1000);
             updateTimestamp();
             

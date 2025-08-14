@@ -15,6 +15,7 @@ if __name__ == "__main__":
         with BravoDriverWithVisualizer(
             simulation_mode=True, with_visualizer=True
         ) as driver:
+            driver.set_labware_at_location(2, "plate-96")
             driver.tips_on(plate_location=1)
             time.sleep(2)
             driver.aspirate(
