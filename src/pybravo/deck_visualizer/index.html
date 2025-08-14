@@ -13,8 +13,8 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
+            background: white;
+            color: #333;
             min-height: 100vh;
             padding: 20px;
         }
@@ -32,19 +32,17 @@
         .header h1 {
             font-size: 2.5rem;
             margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
         }
 
         .status-bar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
+            background: #f8f9fa;
             padding: 15px 25px;
             border-radius: 15px;
             margin-bottom: 30px;
-            border: 1px solid rgba(255,255,255,0.2);
+            border: 1px solid #e9ecef;
         }
 
         .connection-status {
@@ -58,21 +56,18 @@
             height: 12px;
             border-radius: 50%;
             background: #ff4444;
-            transition: all 0.3s ease;
+            transition: background-color 0.3s ease;
         }
 
         .status-dot.connected {
             background: #44ff44;
-            box-shadow: 0 0 10px #44ff44;
         }
 
         .deck-container {
-            background: rgba(231, 231, 232, 0.879);
-            backdrop-filter: blur(10px);
+            background: #e1e2e4;
             border-radius: 20px;
             padding: 10px;
-            border: 1px solid rgba(255,255,255,0.2);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+            border: 1px solid #d6d8db;
             width: 800px;
             margin: 0 auto;
         }
@@ -88,7 +83,7 @@
         }
 
         .deck-position {
-            background: linear-gradient(145deg, #f0f0f0, #d0d0d0);
+            background: #f0f0f0;
             border-radius: 15px;
             border: 3px solid #ccc;
             display: flex;
@@ -96,15 +91,13 @@
             align-items: center;
             justify-content: center;
             position: relative;
-            transition: all 0.3s ease;
-            box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
             color: #333;
             min-height: 120px;
+            transition: transform 0.2s ease;
         }
 
         .deck-position:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
         }
 
         .position-label {
@@ -125,27 +118,26 @@
             justify-content: center;
             font-weight: bold;
             font-size: 0.9rem;
-            transition: all 0.3s ease;
             border: 2px solid transparent;
         }
 
         .labware.plate-96 {
-            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            background: #ff6b6b;
             color: white;
         }
 
         .labware.plate-384 {
-            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+            background: #4ecdc4;
             color: white;
         }
 
         .labware.tips {
-            background: linear-gradient(45deg, #45b7d1, #3498db);
+            background: #45b7d1;
             color: white;
         }
 
         .labware.reservoir {
-            background: linear-gradient(45deg, #f39c12, #e67e22);
+            background: #f39c12;
             color: white;
         }
 
@@ -157,69 +149,34 @@
 
         .labware.active {
             border: 3px solid #ffd700;
-            box-shadow: 0 0 25px rgba(255, 215, 0, 0.8), 0 0 50px rgba(255, 215, 0, 0.4);
-            transform: scale(1.05);
-            animation: operationGlow 2s ease-in-out;
+            transform: scale(1.02);
         }
 
-        .deck-position.aspirating {
-            animation: aspirateGlow 1.5s ease-in-out;
+        /* Simplified animations that only trigger when needed */
+        .deck-position.operation-glow {
+            animation: simpleGlow 1s ease-out;
         }
 
-        .deck-position.dispensing {
-            animation: dispenseGlow 1.5s ease-in-out;
-        }
-
-        .deck-position.moving {
-            animation: moveGlow 1s ease-in-out;
-        }
-
-        @keyframes operationGlow {
-            0%, 100% { 
-                box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        @keyframes simpleGlow {
+            0% { 
+                border-color: #ccc;
             }
             50% { 
-                box-shadow: 0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 215, 0, 0.6);
-            }
-        }
-
-        @keyframes aspirateGlow {
-            0%, 100% { 
-                box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
-            }
-            50% { 
-                box-shadow: 0 0 30px rgba(52, 152, 219, 0.8), 0 0 60px rgba(52, 152, 219, 0.4);
                 border-color: #3498db;
+                box-shadow: 0 0 15px rgba(52, 152, 219, 0.5);
             }
-        }
-
-        @keyframes dispenseGlow {
-            0%, 100% { 
-                box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
-            }
-            50% { 
-                box-shadow: 0 0 30px rgba(46, 204, 113, 0.8), 0 0 60px rgba(46, 204, 113, 0.4);
-                border-color: #2ecc71;
-            }
-        }
-
-        @keyframes moveGlow {
-            0%, 100% { 
-                box-shadow: inset 2px 2px 5px rgba(0,0,0,0.1);
-            }
-            50% { 
-                box-shadow: 0 0 25px rgba(155, 89, 182, 0.8), 0 0 50px rgba(155, 89, 182, 0.4);
-                border-color: #9b59b6;
+            100% { 
+                border-color: #ccc;
             }
         }
 
         .controls {
             margin-top: 30px;
-            text-align: center;
+            text-align: center;             
         }
 
         .btn {
-            background: linear-gradient(45deg, #667eea, #764ba2);
+            background: #007bff;
             color: white;
             border: none;
             padding: 12px 25px;
@@ -227,36 +184,36 @@
             border-radius: 25px;
             cursor: pointer;
             font-weight: bold;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: background-color 0.2s ease;
         }
 
         .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+            background: #0056b3;
         }
 
         .btn:active {
-            transform: translateY(0);
+            background: #004085;
         }
 
         .info-panel {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
+            background: #f8f9fa;
             border-radius: 15px;
             padding: 20px;
             margin-top: 20px;
-            border: 1px solid rgba(255,255,255,0.2);
+            border: 1px solid #e9ecef;
+            max-height: 300px;
+            overflow-y: auto;
         }
 
         .log-entry {
-            background: rgba(255,255,255,0.05);
+            background: rgba(78, 205, 196, 0.1);
             padding: 8px 12px;
             margin: 5px 0;
             border-radius: 8px;
             border-left: 4px solid #4ecdc4;
             font-family: 'Courier New', monospace;
             font-size: 0.9rem;
+            color: #333;
         }
 
         .volume-indicator {
@@ -271,14 +228,20 @@
             font-weight: bold;
         }
 
-        .loading {
-            animation: pulse 2s infinite;
+        /* Remove expensive backdrop-filter and complex gradients */
+        /* Use transform3d for hardware acceleration on animations that need it */
+        .deck-position.moving {
+            animation: moveGlow 0.8s ease-out;
         }
 
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
+        @keyframes moveGlow {
+            0%, 100% { 
+                transform: translateZ(0);
+            }
+            50% { 
+                transform: translateZ(0);
+                border-color: #9b59b6;
+            }
         }
     </style>
 </head>
@@ -306,6 +269,7 @@
         <div class="controls">
             <button class="btn" onclick="connectWebSocket()">Connect</button>
             <button class="btn" onclick="simulateTransfer()">Simulate Transfer</button>
+            <button class="btn" onclick="loadDefaultLayout()">Load Default</button>
             <button class="btn" onclick="clearDeck()">Clear Deck</button>
         </div>
 
@@ -322,6 +286,7 @@
         // Initialize deck positions
         function initializeDeck() {
             const deckGrid = document.getElementById('deckGrid');
+            const fragment = document.createDocumentFragment();
             
             for (let i = 1; i <= 9; i++) {
                 const position = document.createElement('div');
@@ -332,7 +297,7 @@
                     <div class="labware empty" id="labware-${i}">Empty</div>
                     <div class="volume-indicator" id="volume-${i}">0 μL</div>
                 `;
-                deckGrid.appendChild(position);
+                fragment.appendChild(position);
                 
                 deckState[i] = {
                     labware: 'empty',
@@ -340,6 +305,8 @@
                     active: false
                 };
             }
+            
+            deckGrid.appendChild(fragment);
         }
 
         // WebSocket connection
@@ -381,76 +348,68 @@
                     handleOperation(data);
                     break;
                 case 'aspirate_operation':
-                    showOperationGlow(data.position, 'aspirating');
-                    break;
                 case 'dispense_operation':
-                    showOperationGlow(data.position, 'dispensing');
-                    break;
                 case 'move_operation':
-                    showOperationGlow(data.position, 'moving');
+                    showOperationGlow(data.position, data.type);
                     break;
             }
         }
 
-        // Show operation glow effect
+        // Simplified operation glow effect
         function showOperationGlow(position, operationType) {
             const positionElement = document.getElementById(`position-${position}`);
             if (positionElement) {
-                // Remove any existing operation classes
-                positionElement.classList.remove('aspirating', 'dispensing', 'moving');
-                
-                // Add the new operation class
-                positionElement.classList.add(operationType);
+                // Use a single, simple animation class
+                positionElement.classList.add('operation-glow');
                 
                 // Remove the class after animation completes
                 setTimeout(() => {
-                    positionElement.classList.remove(operationType);
-                }, operationType === 'moving' ? 1000 : 1500);
+                    positionElement.classList.remove('operation-glow');
+                }, 1000);
                 
                 // Log the operation
                 const operationNames = {
-                    'aspirating': 'Aspirating',
-                    'dispensing': 'Dispensing',
-                    'moving': 'Moving to'
+                    'aspirate_operation': 'Aspirating',
+                    'dispense_operation': 'Dispensing',
+                    'move_operation': 'Moving to'
                 };
                 addLogEntry(`${operationNames[operationType]} at position ${position}`);
             }
         }
 
-        // Update deck state
+        // Update deck state with batching
         function updateDeckState(deck) {
+            // Batch DOM updates to minimize reflows
+            const updates = [];
+            
             for (const [position, state] of Object.entries(deck)) {
                 const labwareElement = document.getElementById(`labware-${position}`);
                 const volumeElement = document.getElementById(`volume-${position}`);
                 
-                if (labwareElement) {
-                    labwareElement.className = `labware ${state.labware}`;
-                    labwareElement.textContent = state.labware === 'empty' ? 'Empty' : state.labware;
-                    
-                    if (state.active) {
-                        labwareElement.classList.add('active');
-                    }
-                }
-                
-                if (volumeElement) {
-                    volumeElement.textContent = `${state.volume} μL`;
+                if (labwareElement && volumeElement) {
+                    updates.push(() => {
+                        labwareElement.className = `labware ${state.labware}`;
+                        labwareElement.textContent = state.labware === 'empty' ? 'Empty' : state.labware;
+                        
+                        if (state.active) {
+                            labwareElement.classList.add('active');
+                        }
+                        
+                        volumeElement.textContent = `${state.volume} μL`;
+                    });
                 }
                 
                 deckState[position] = state;
             }
+            
+            // Apply all updates at once
+            updates.forEach(update => update());
         }
 
         // Handle operations
         function handleOperation(data) {
             document.getElementById('currentOperation').textContent = data.operation;
             addLogEntry(`${data.operation}: ${data.details || ''}`);
-            
-            // Show glow effects for affected positions
-            if (data.positions) {
-                data.positions.forEach(pos => {
-                    showOperationGlow(pos, 'moving');
-                });
-            }
         }
 
         // Utility functions
@@ -474,14 +433,19 @@
             entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
             log.insertBefore(entry, log.firstChild);
             
-            // Keep only last 20 entries
-            while (log.children.length > 20) {
+            // Keep only last 15 entries to reduce DOM size
+            while (log.children.length > 15) {
                 log.removeChild(log.lastChild);
             }
         }
 
+        // Use requestAnimationFrame for timestamp updates
+        let timestampUpdateId = null;
         function updateTimestamp() {
             document.getElementById('timestamp').textContent = new Date().toLocaleTimeString();
+            timestampUpdateId = requestAnimationFrame(() => {
+                setTimeout(updateTimestamp, 1000);
+            });
         }
 
         // Demo functions
@@ -491,12 +455,12 @@
             const volume = Math.floor(Math.random() * 500) + 50;
             
             // Show aspirate glow
-            showOperationGlow(fromPos, 'aspirating');
+            showOperationGlow(fromPos, 'aspirate_operation');
             
             // Show dispense glow after a delay
             setTimeout(() => {
-                showOperationGlow(toPos, 'dispensing');
-            }, 1000);
+                showOperationGlow(toPos, 'dispense_operation');
+            }, 600);
             
             addLogEntry(`Simulated transfer: ${volume} μL from position ${fromPos} to ${toPos}`);
         }
@@ -507,22 +471,6 @@
             }
             updateDeckState(deckState);
             addLogEntry('Deck cleared');
-        }
-
-        function simulateTransfer() {
-            const fromPos = Math.floor(Math.random() * 9) + 1;
-            const toPos = Math.floor(Math.random() * 9) + 1;
-            const volume = Math.floor(Math.random() * 500) + 50;
-            
-            // Show aspirate glow
-            showOperationGlow(fromPos, 'aspirating');
-            
-            // Show dispense glow after a delay
-            setTimeout(() => {
-                showOperationGlow(toPos, 'dispensing');
-            }, 1000);
-            
-            addLogEntry(`Simulated transfer: ${volume} μL from position ${fromPos} to ${toPos}`);
         }
 
         function loadDefaultLayout() {
@@ -544,13 +492,22 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             initializeDeck();
-            setInterval(updateTimestamp, 1000);
             updateTimestamp();
             
-            // Auto-connect to WebSocket after page loads
+            // Load default layout for demo
             setTimeout(() => {
-                connectWebSocket();
-            }, 1000);
+                loadDefaultLayout();
+            }, 500);
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (timestampUpdateId) {
+                cancelAnimationFrame(timestampUpdateId);
+            }
+            if (ws) {
+                ws.close();
+            }
         });
     </script>
 </body>
