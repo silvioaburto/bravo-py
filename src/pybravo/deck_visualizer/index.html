@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bravo Deck Visualizer - Enhanced</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: white;
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 30px;
+        }
+
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+            padding: 15px 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid #e9ecef;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+            transition: background-color 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background: #44ff44;
+        }
+
+        .deck-container {
+            background: #e1e2e4;
+            border-radius: 20px;
+            padding: 10px;
+            border: 1px solid #d6d8db;
+            width: 800px;
+            margin: 0 auto;
+        }
+
+        .deck-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 20px;
+            aspect-ratio: 1.5;
+            width: 100%;
+            position: relative;
+        }
+
+        .deck-position {
+            background: #f0f0f0;
+            border-radius: 15px;
+            border: 3px solid #ccc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            color: #333;
+            min-height: 120px;
+            transition: transform 0.2s ease;
+            cursor: pointer;
+        }
+
+        .deck-position:hover {
+            transform: translateY(-2px);
+        }
+
+        .deck-position.selected {
+            border-color: #007bff;
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
+        }
+
+        .position-label {
+            position: absolute;
+            top: 8px;
+            left: 12px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #666;
+        }
+
+        .labware {
+            width: 80%;
+            height: 60%;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            border: 2px solid transparent;
+            text-align: center;
+        }
+
+        .labware.plate-96 {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .labware.plate-384 {
+            background: #4ecdc4;
+            color: white;
+        }
+
+        .labware.tips {
+            background: #45b7d1;
+            color: white;
+        }
+
+        .labware.reservoir {
+            background: #f39c12;
+            color: white;
+        }
+
+        .labware.empty {
+            background: transparent;
+            border: 2px dashed #999;
+            color: #999;
+        }
+
+        .labware.active {
+            border: 3px solid #ffd700;
+            transform: scale(1.02);
+        }
+
+        .deck-position.operation-glow {
+            animation: simpleGlow 1s ease-out;
+        }
+
+        @keyframes simpleGlow {
+            0% { 
+                border-color: #ccc;
+            }
+            50% { 
+                border-color: #3498db;
+                box-shadow: 0 0 15px rgba(52, 152, 219, 0.5);
+            }
+            100% { 
+                border-color: #ccc;
+            }
+        }
+
+        .controls {
+            margin-top: 30px;
+            text-align: center;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s ease;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+        }
+
+        .btn:active {
+            background: #004085;
+        }
+
+        .btn.secondary {
+            background: #6c757d;
+        }
+
+        .btn.secondary:hover {
+            background: #545b62;
+        }
+
+        .volume-indicator {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: bold;
+        }
+
+        .tips-indicator {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            background: rgba(68, 183, 209, 0.9);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.6rem;
+            font-weight: bold;
+        }
+
+        .operation-indicator {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(255, 107, 107, 0.9);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 0.6rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        /* Side Panel Styles */
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .panel-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+        }
+
+        .panel-section h3 {
+            margin-bottom: 15px;
+            color: #495057;
+            border-bottom: 2px solid #dee2e6;
+            padding-bottom: 5px;
+        }
+
+        .state-overview {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .state-item {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #dee2e6;
+        }
+
+        .state-item .value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .state-item .label {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .nest-details {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            border: 1px solid #dee2e6;
+        }
+
+        .nest-details h4 {
+            color: #495057;
+            margin-bottom: 10px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #f1f3f4;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            font-weight: 500;
+            color: #6c757d;
+        }
+
+        .detail-value {
+            color: #495057;
+            font-weight: 600;
+        }
+
+        .log-entry {
+            background: rgba(78, 205, 196, 0.1);
+            padding: 8px 12px;
+            margin: 5px 0;
+            border-radius: 8px;
+            border-left: 4px solid #4ecdc4;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #333;
+        }
+
+        .activity-log {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .quick-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .action-group {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+
+        .action-group h4 {
+            margin-bottom: 10px;
+            color: #495057;
+            font-size: 0.9rem;
+        }
+
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            border-radius: 15px;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+                max-width: 900px;
+            }
+            
+            .side-panel {
+                order: -1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-panel">
+            <div class="header">
+                <h1>🧪 Bravo Deck Visualizer</h1>
+            </div>
+
+            <div class="status-bar">
+                <div class="connection-status">
+                    <div class="status-dot" id="connectionDot"></div>
+                    <span id="connectionText">Disconnected</span>
+                </div>
+                <div id="currentOperation">Ready</div>
+                <div id="timestamp">--:--:--</div>
+            </div>
+
+            <div class="deck-container">
+                <div class="deck-grid" id="deckGrid">
+                    <!-- Positions 1-9 will be generated by JavaScript -->
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="btn" onclick="connectWebSocket()">Connect</button>
+                <button class="btn" onclick="simulateTransfer()">Simulate Transfer</button>
+                <button class="btn" onclick="loadDefaultLayout()">Load Default</button>
+                <button class="btn secondary" onclick="clearDeck()">Clear Deck</button>
+                <button class="btn secondary" onclick="requestDetailedState()">Refresh State</button>
+            </div>
+        </div>
+
+        <div class="side-panel">
+            <!-- State Overview Panel -->
+            <div class="panel-section">
+                <h3>📊 Deck Overview</h3>
+                <div class="state-overview">
+                    <div class="state-item">
+                        <div class="value" id="activeOpsCount">0</div>
+                        <div class="label">Active Operations</div>
+                    </div>
+                    <div class="state-item">
+                        <div class="value" id="labwareCount">0</div>
+                        <div class="label">Labware Items</div>
+                    </div>
+                    <div class="state-item">
+                        <div class="value" id="tipsCount">0</div>
+                        <div class="label">Tips Loaded</div>
+                    </div>
+                    <div class="state-item">
+                        <div class="value" id="totalOpsCount">0</div>
+                        <div class="label">Total Operations</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Selected Nest Details -->
+            <div class="panel-section">
+                <h3>🔍 Nest Details</h3>
+                <div id="nestDetails">
+                    <p style="color: #6c757d; text-align: center; padding: 20px;">
+                        Click on a deck position to view details
+                    </p>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="panel-section">
+                <h3>⚡ Quick Actions</h3>
+                <div class="quick-actions">
+                    <div class="action-group">
+                        <h4>Tip Operations</h4>
+                        <div class="action-buttons">
+                            <button class="btn btn-small" onclick="quickTipsOn()">Tips On</button>
+                            <button class="btn btn-small" onclick="quickTipsOff()">Tips Off</button>
+                        </div>
+                    </div>
+                    <div class="action-group">
+                        <h4>Liquid Handling</h4>
+                        <div class="action-buttons">
+                            <button class="btn btn-small" onclick="quickAspirate()">Aspirate 100µL</button>
+                            <button class="btn btn-small" onclick="quickDispense()">Dispense 100µL</button>
+                            <button class="btn btn-small" onclick="quickWash()">Wash Tips</button>
+                        </div>
+                    </div>
+                    <div class="action-group">
+                        <h4>Labware</h4>
+                        <div class="action-buttons">
+                            <button class="btn btn-small" onclick="addPlate96()">Add 96-well</button>
+                            <button class="btn btn-small" onclick="addTips()">Add Tips</button>
+                            <button class="btn btn-small" onclick="addReservoir()">Add Reservoir</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activity Log -->
+            <div class="panel-section">
+                <h3>📝 Activity Log</h3>
+                <div class="activity-log" id="activityLog"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let deckState = {};
+        let selectedNest = null;
+        let stateInfo = {};
+
+        // Initialize deck positions
+        function initializeDeck() {
+            const deckGrid = document.getElementById('deckGrid');
+            
+            if (!deckGrid) {
+                console.error('deckGrid element not found!');
+                return;
+            }
+            
+            const fragment = document.createDocumentFragment();
+            
+            for (let i = 1; i <= 9; i++) {
+                const position = document.createElement('div');
+                position.className = 'deck-position';
+                position.id = `position-${i}`;
+                position.onclick = () => selectNest(i);
+                
+                position.innerHTML = `
+                    <div class="position-label">${i}</div>
+                    <div class="labware empty" id="labware-${i}">Empty</div>
+                    <div class="volume-indicator" id="volume-${i}">0 µL</div>
+                    <div class="tips-indicator" id="tips-${i}" style="display: none;">TIPS</div>
+                    <div class="operation-indicator" id="operation-${i}" style="display: none;">IDLE</div>
+                `;
+                fragment.appendChild(position);
+                
+                deckState[i] = {
+                    labware: 'empty',
+                    volume: 0,
+                    active: false,
+                    labware_name: '',
+                    operation: 'idle',
+                    tips_loaded: false
+                };
+            }
+            
+            deckGrid.appendChild(fragment);
+        }
+
+        // Select a nest and show details
+        function selectNest(nestId) {
+            // Clear previous selection
+            document.querySelectorAll('.deck-position').forEach(pos => {
+                pos.classList.remove('selected');
+            });
+            
+            // Select current nest
+            const position = document.getElementById(`position-${nestId}`);
+            position.classList.add('selected');
+            selectedNest = nestId;
+            
+            // Update details panel
+            updateNestDetails(nestId);
+        }
+
+        // Update nest details panel
+        function updateNestDetails(nestId) {
+            const nestDetailsDiv = document.getElementById('nestDetails');
+            const state = deckState[nestId];
+            
+            if (!state) return;
+            
+            nestDetailsDiv.innerHTML = `
+                <div class="nest-details">
+                    <h4>Position ${nestId}</h4>
+                    <div class="detail-row">
+                        <span class="detail-label">Labware Type:</span>
+                        <span class="detail-value">${state.labware}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Labware Name:</span>
+                        <span class="detail-value">${state.labware_name || 'N/A'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Current Volume:</span>
+                        <span class="detail-value">${state.volume} µL</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Tips Loaded:</span>
+                        <span class="detail-value">${state.tips_loaded ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Operation Status:</span>
+                        <span class="detail-value">${state.operation}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Active:</span>
+                        <span class="detail-value">${state.active ? 'Yes' : 'No'}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // WebSocket connection
+        function connectWebSocket() {
+            try {
+                ws = new WebSocket('ws://localhost:8765');
+                
+                ws.onopen = function() {
+                    updateConnectionStatus(true);
+                    addLogEntry('Connected to Bravo server');
+                    requestDetailedState();
+                };
+                
+                ws.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    handleServerMessage(data);
+                };
+                
+                ws.onclose = function() {
+                    updateConnectionStatus(false);
+                    addLogEntry('Disconnected from server');
+                };
+                
+                ws.onerror = function() {
+                    updateConnectionStatus(false);
+                    addLogEntry('Connection error');
+                };
+            } catch (error) {
+                addLogEntry('Failed to connect: ' + error.message);
+            }
+        }
+
+        // Handle messages from server
+        function handleServerMessage(data) {
+            switch (data.type) {
+                case 'deck_update':
+                    updateDeckState(data.deck);
+                    if (data.state_info) {
+                        updateStateInfo(data.state_info);
+                    }
+                    break;
+                case 'operation':
+                    handleOperation(data);
+                    break;
+                case 'aspirate_operation':
+                case 'dispense_operation':
+                case 'move_operation':
+                    showOperationGlow(data.position, data.type);
+                    break;
+                case 'detailed_state':
+                    handleDetailedState(data.state);
+                    break;
+            }
+        }
+
+        // Update state overview
+        function updateStateInfo(info) {
+            stateInfo = info;
+            document.getElementById('activeOpsCount').textContent = info.active_operations || 0;
+            document.getElementById('labwareCount').textContent = info.nests_with_labware || 0;
+            document.getElementById('tipsCount').textContent = info.nests_with_tips || 0;
+            document.getElementById('totalOpsCount').textContent = info.total_operations || 0;
+        }
+
+        // Handle detailed state information
+        function handleDetailedState(state) {
+            console.log('Detailed state received:', state);
+            addLogEntry('Detailed state information updated');
+        }
+
+        // Show operation glow effect
+        function showOperationGlow(position, operationType) {
+            const positionElement = document.getElementById(`position-${position}`);
+            if (positionElement) {
+                positionElement.classList.add('operation-glow');
+                
+                setTimeout(() => {
+                    positionElement.classList.remove('operation-glow');
+                }, 1000);
+                
+                const operationNames = {
+                    'aspirate_operation': 'Aspirating',
+                    'dispense_operation': 'Dispensing',
+                    'move_operation': 'Moving to'
+                };
+                addLogEntry(`${operationNames[operationType]} at position ${position}`);
+            }
+        }
+
+        // Update deck state with enhanced information
+        function updateDeckState(deck) {
+            for (const [position, state] of Object.entries(deck)) {
+                const labwareElement = document.getElementById(`labware-${position}`);
+                const volumeElement = document.getElementById(`volume-${position}`);
+                const tipsElement = document.getElementById(`tips-${position}`);
+                const operationElement = document.getElementById(`operation-${position}`);
+                
+                if (labwareElement && volumeElement) {
+                    labwareElement.className = `labware ${state.labware}`;
+                    labwareElement.textContent = state.labware_name || (state.labware === 'empty' ? 'Empty' : state.labware);
+                    
+                    if (state.active) {
+                        labwareElement.classList.add('active');
+                    }
+                    
+                    volumeElement.textContent = `${state.volume} µL`;
+                    
+                    // Update tips indicator
+                    if (tipsElement) {
+                        if (state.tips_loaded) {
+                            tipsElement.style.display = 'block';
+                        } else {
+                            tipsElement.style.display = 'none';
+                        }
+                    }
+                    
+                    // Update operation indicator
+                    if (operationElement) {
+                        if (state.operation && state.operation !== 'idle') {
+                            operationElement.textContent = state.operation.toUpperCase();
+                            operationElement.style.display = 'block';
+                        } else {
+                            operationElement.style.display = 'none';
+                        }
+                    }
+                }
+                
+                deckState[position] = state;
+            }
+            
+            // Update selected nest details if any
+            if (selectedNest) {
+                updateNestDetails(selectedNest);
+            }
+        }
+
+        // Handle operations
+        function handleOperation(data) {
+            document.getElementById('currentOperation').textContent = data.operation;
+            addLogEntry(`${data.operation}: ${data.details || ''}`);
+        }
+
+        // Utility functions
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            
+            if (connected) {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function addLogEntry(message) {
+            const log = document.getElementById('activityLog');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            log.insertBefore(entry, log.firstChild);
+            
+            // Keep only last 20 entries
+            while (log.children.length > 20) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        function updateTimestamp() {
+            document.getElementById('timestamp').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Request detailed state from server
+        function requestDetailedState() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'get_detailed_state'
+                }));
+            }
+        }
+
+        // Demo functions
+        function simulateTransfer() {
+            const fromPos = Math.floor(Math.random() * 9) + 1;
+            const toPos = Math.floor(Math.random() * 9) + 1;
+            const volume = Math.floor(Math.random() * 500) + 50;
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'simulate_transfer',
+                    from: fromPos,
+                    to: toPos,
+                    volume: volume
+                }));
+            }
+            
+            addLogEntry(`Simulated transfer: ${volume} µL from position ${fromPos} to ${toPos}`);
+        }
+
+        function clearDeck() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'reset_deck'
+                }));
+            }
+            addLogEntry('Deck cleared');
+        }
+
+        function loadDefaultLayout() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'get_state'
+                }));
+            }
+            addLogEntry('Default layout requested');
+        }
+
+        // Quick action functions
+        function quickTipsOn() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'simulate_operation',
+                    operation: 'tips_on',
+                    position: selectedNest
+                }));
+            }
+        }
+
+        function quickTipsOff() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'simulate_operation',
+                    operation: 'tips_off',
+                    position: selectedNest
+                }));
+            }
+        }
+
+        function quickAspirate() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'simulate_operation',
+                    operation: 'aspirate',
+                    position: selectedNest,
+                    volume: 100
+                }));
+            }
+        }
+
+        function quickDispense() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'simulate_operation',
+                    operation: 'dispense',
+                    position: selectedNest,
+                    volume: 100
+                }));
+            }
+        }
+
+        function quickWash() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'simulate_operation',
+                    operation: 'wash',
+                    position: selectedNest,
+                    volume: 200
+                }));
+            }
+        }
+
+        function addPlate96() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'set_labware',
+                    position: selectedNest,
+                    labware_type: 'microplate_96',
+                    labware_name: '96-well Plate'
+                }));
+            }
+        }
+
+        function addTips() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'set_labware',
+                    position: selectedNest,
+                    labware_type: 'tip_rack',
+                    labware_name: 'Tip Rack'
+                }));
+            }
+        }
+
+        function addReservoir() {
+            if (!selectedNest) {
+                addLogEntry('Please select a nest position first');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    command: 'set_labware',
+                    position: selectedNest,
+                    labware_type: 'reservoir',
+                    labware_name: 'Reagent Reservoir'
+                }));
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDeck();
+            setInterval(updateTimestamp, 1000);
+            
+            // Auto-connect after a short delay
+            setTimeout(() => {
+                connectWebSocket();
+            }, 1000);
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>
