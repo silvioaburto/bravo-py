@@ -13,6 +13,9 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import socketserver
 from pathlib import Path
 
+# Import the state management classes
+from .state import BravoDeckState, OperationStatus, LabwareType
+
 # Try to import BravoDriver from the correct location
 try:
     from ..core import BravoDriver
@@ -148,20 +151,134 @@ def start_file_server(directory: str, ws_port: int, http_port: int = 8080):
         os.chdir(original_dir)
 
 
-class BravoDeckVisualizer:
-    """Simple WebSocket server for Bravo deck visualization"""
+def labware_type_to_web_format(labware_type: LabwareType) -> str:
+    """Convert LabwareType enum to web-compatible format"""
+    mapping = {
+        LabwareType.MICROPLATE_96: "plate-96",
+        LabwareType.MICROPLATE_384: "plate-384",
+        LabwareType.DEEPWELL_96: "plate-96",  # Use similar visual
+        LabwareType.RESERVOIR: "reservoir",
+        LabwareType.TIP_RACK: "tips",
+        LabwareType.EMPTY: "empty",
+        LabwareType.UNKNOWN: "empty",
+    }
+    return mapping.get(labware_type, "empty")
 
-    def __init__(self, host: str = "localhost", port: int = 8765):
+
+def operation_status_to_web_format(status: OperationStatus) -> str:
+    """Convert OperationStatus enum to web-compatible format"""
+    mapping = {
+        OperationStatus.ASPIRATING: "aspirate",
+        OperationStatus.DISPENSING: "dispense",
+        OperationStatus.MIXING: "mix",
+        OperationStatus.WASHING: "wash",
+        OperationStatus.MOVING: "move",
+        OperationStatus.PICKING: "move",
+        OperationStatus.PLACING: "move",
+        OperationStatus.PUMPING: "dispense",
+        OperationStatus.IDLE: "idle",
+        OperationStatus.ERROR: "error",
+    }
+    return mapping.get(status, "idle")
+
+
+class BravoDeckVisualizerWithState:
+    """Enhanced WebSocket server for Bravo deck visualization with state management"""
+
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 8765,
+        bravo_driver: Optional[BravoDriver] = None,
+    ):
         self.host = host
         self.port = port
         self.clients = set()
 
-        # Simple deck state - 9 positions
-        self.deck_state = {
+        # Initialize or use provided Bravo driver
+        self.bravo_driver = bravo_driver
+        if self.bravo_driver is None:
+            # Create a simulation driver with state tracking
+            self.bravo_driver = BravoDriver(
+                simulation_mode=True, enable_state_tracking=True
+            )
+
+        # Get the deck state from the driver
+        self.deck_state = self.bravo_driver.get_deck_state()
+        if self.deck_state is None:
+            logger.warning(
+                "BravoDriver doesn't have state tracking enabled, creating separate state tracker"
+            )
+            self.deck_state = BravoDeckState()
+
+        # Legacy simple deck state for backward compatibility
+        self.simple_deck_state = {
             i: {"labware": "empty", "volume": 0, "active": False} for i in range(1, 10)
         }
 
         self.current_operation = "Ready"
+
+        # Sync initial state
+        self._sync_state_to_simple_format()
+
+    def _sync_state_to_simple_format(self):
+        """Sync the BravoDeckState to simple format for web interface"""
+        if not self.deck_state:
+            return
+
+        for nest_id in range(1, 10):
+            nest = self.deck_state.get_nest(nest_id)
+            if nest:
+                # Convert labware type
+                web_labware = labware_type_to_web_format(nest.labware_type)
+
+                # Calculate total volume (current + dispensed)
+                total_volume = max(0, nest.volume_info.current_volume)
+
+                # Check if operation is active
+                is_active = nest.operation_info.status != OperationStatus.IDLE
+
+                self.simple_deck_state[nest_id] = {
+                    "labware": web_labware,
+                    "volume": int(total_volume),
+                    "active": is_active,
+                    "labware_name": nest.labware_name or "",
+                    "operation": operation_status_to_web_format(
+                        nest.operation_info.status
+                    ),
+                    "tips_loaded": nest.tip_info.tips_loaded,
+                }
+
+    def _sync_simple_to_state_format(self, nest_id: int, simple_data: dict):
+        """Sync changes from simple format back to BravoDeckState"""
+        if not self.deck_state:
+            return
+
+        nest = self.deck_state.get_nest(nest_id)
+        if not nest:
+            return
+
+        # Convert web format back to enum
+        web_to_labware = {
+            "plate-96": LabwareType.MICROPLATE_96,
+            "plate-384": LabwareType.MICROPLATE_384,
+            "tips": LabwareType.TIP_RACK,
+            "reservoir": LabwareType.RESERVOIR,
+            "empty": LabwareType.EMPTY,
+        }
+
+        labware_type = web_to_labware.get(
+            simple_data.get("labware", "empty"), LabwareType.EMPTY
+        )
+        labware_name = simple_data.get("labware_name", "")
+
+        # Update the state
+        nest.set_labware(labware_type, labware_name if labware_name else None)
+
+        # Update volume if provided
+        if "volume" in simple_data:
+            current_vol = simple_data["volume"]
+            nest.volume_info.current_volume = current_vol
 
     async def register_client(self, websocket):
         """Register a new client"""
@@ -201,11 +318,26 @@ class BravoDeckVisualizer:
 
     async def send_deck_update(self, websocket=None):
         """Send deck state update"""
+        # Sync state before sending
+        self._sync_state_to_simple_format()
+
+        # Enhanced message with state information
         message = {
             "type": "deck_update",
-            "deck": self.deck_state,
+            "deck": self.simple_deck_state,
             "timestamp": datetime.now().isoformat(),
         }
+
+        # Add state summary if available
+        if self.deck_state:
+            deck_summary = self.deck_state.get_deck_summary()
+            message["state_info"] = {
+                "active_operations": len(self.deck_state.get_active_operations()),
+                "nests_with_labware": len(self.deck_state.get_nests_with_labware()),
+                "nests_with_tips": len(self.deck_state.get_nests_with_tips()),
+                "total_operations": deck_summary["deck_info"]["global_operation_count"],
+                "error_count": deck_summary["deck_info"]["error_count"],
+            }
 
         if websocket:
             await self.send_message(websocket, message)
@@ -233,54 +365,102 @@ class BravoDeckVisualizer:
         await self.broadcast_message(message)
 
     async def setup_default_deck(self):
-        """Setup default labware layout"""
-        default_layout = {
-            1: {"labware": "tips", "volume": 0},
-            2: {"labware": "plate-96", "volume": 150000},
-            3: {"labware": "plate-96", "volume": 75000},
-            4: {"labware": "reservoir", "volume": 500000},
-            5: {"labware": "empty", "volume": 0},
-            6: {"labware": "plate-384", "volume": 50000},
-            7: {"labware": "empty", "volume": 0},
-            8: {"labware": "plate-96", "volume": 0},
-            9: {"labware": "tips", "volume": 0},
-        }
+        """Setup default labware layout using state management"""
+        default_layout = [
+            (1, LabwareType.TIP_RACK, "200µL Tips"),
+            (2, LabwareType.MICROPLATE_96, "Source Plate"),
+            (3, LabwareType.MICROPLATE_96, "Destination Plate"),
+            (4, LabwareType.RESERVOIR, "Buffer Reservoir"),
+            (6, LabwareType.MICROPLATE_384, "Assay Plate"),
+            (8, LabwareType.MICROPLATE_96, "Control Plate"),
+            (9, LabwareType.TIP_RACK, "1000µL Tips"),
+        ]
 
-        for pos, config in default_layout.items():
-            self.deck_state[pos].update(config)
-            self.deck_state[pos]["active"] = False
+        for position, labware_type, labware_name in default_layout:
+            if self.deck_state:
+                self.deck_state.set_labware_at_nest(
+                    position, labware_type.value, labware_name
+                )
+
+            # Also update simple state for immediate visual update
+            web_labware = labware_type_to_web_format(labware_type)
+            self.simple_deck_state[position] = {
+                "labware": web_labware,
+                "volume": 150000 if "Plate" in labware_name else 0,  # Default volumes
+                "active": False,
+                "labware_name": labware_name,
+                "operation": "idle",
+                "tips_loaded": False,
+            }
 
         await self.send_deck_update()
 
-    async def simulate_operation(
-        self, operation: str, position: int, volume: float = 0
+    async def simulate_operation_with_state(
+        self, operation: str, position: int, volume: float = 0, **kwargs
     ):
-        """Simulate a single operation"""
+        """Simulate a single operation using state management"""
+
+        # Update state management
+        if self.deck_state:
+            operation_details = {"volume": volume, **kwargs}
+
+            # Map operation names to OperationStatus
+            op_mapping = {
+                "aspirate": OperationStatus.ASPIRATING,
+                "dispense": OperationStatus.DISPENSING,
+                "mix": OperationStatus.MIXING,
+                "wash": OperationStatus.WASHING,
+                "move": OperationStatus.MOVING,
+                "tips_on": OperationStatus.IDLE,  # Tips operations don't have separate status
+                "tips_off": OperationStatus.IDLE,
+            }
+
+            if (
+                operation in op_mapping
+                and op_mapping[operation] != OperationStatus.IDLE
+            ):
+                self.deck_state.start_operation_at_nest(
+                    position, operation, operation_details
+                )
+
+                # Update volumes
+                if operation == "aspirate":
+                    self.deck_state.update_volume_at_nest(position, aspirated=volume)
+                elif operation == "dispense":
+                    self.deck_state.update_volume_at_nest(position, dispensed=volume)
+
+            # Handle tip operations
+            if operation == "tips_on":
+                tip_type = kwargs.get("tip_type", "standard")
+                self.deck_state.update_tips_at_nest(
+                    position, tips_on=True, tip_type=tip_type
+                )
+            elif operation == "tips_off":
+                self.deck_state.update_tips_at_nest(position, tips_on=False)
+
         # Show glow effect
         glow_type = "move"
         if operation == "aspirate":
             glow_type = "aspirate"
-            self.deck_state[position]["volume"] = max(
-                0, self.deck_state[position]["volume"] - volume
-            )
         elif operation == "dispense":
             glow_type = "dispense"
-            self.deck_state[position]["volume"] += volume
 
         await self.send_operation_glow(position, glow_type)
         await self.broadcast_operation(
             f"{operation.title()} at position {position}",
-            f"{volume} μL" if volume > 0 else "",
+            f"{volume} µL" if volume > 0 else "",
         )
 
-        # Update deck state
-        self.deck_state[position]["active"] = True
+        # Sync and update deck state
+        self._sync_state_to_simple_format()
         await self.send_deck_update()
         await asyncio.sleep(1.5)
 
-        # Clear active state
-        self.deck_state[position]["active"] = False
-        await self.send_deck_update()
+        # Complete operation in state management
+        if self.deck_state:
+            self.deck_state.complete_operation_at_nest(position)
+            self._sync_state_to_simple_format()
+            await self.send_deck_update()
 
     async def handle_client_message(self, websocket, message: str):
         """Handle incoming client messages"""
@@ -290,74 +470,79 @@ class BravoDeckVisualizer:
 
             if command == "get_state":
                 await self.send_deck_update(websocket)
+
+            elif command == "get_detailed_state":
+                # Send detailed state information
+                if self.deck_state:
+                    detailed_state = self.deck_state.export_state_to_dict()
+                    message = {
+                        "type": "detailed_state",
+                        "state": detailed_state,
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                    await self.send_message(websocket, message)
+
             elif command == "simulate_transfer":
                 from_pos = data.get("from", 1)
                 to_pos = data.get("to", 2)
                 volume = data.get("volume", 100)
-                await self.simulate_transfer(from_pos, to_pos, volume)
+                await self.simulate_transfer_with_state(from_pos, to_pos, volume)
+
             elif command == "simulate_operation":
-                # Handle operations from the enhanced driver
                 operation = data.get("operation")
                 position = data.get("position", 1)
                 volume = data.get("volume", 0)
 
-                if operation == "aspirate":
-                    await self.send_operation_glow(position, "aspirate")
-                    await self.broadcast_operation(
-                        f"Aspirating {volume} μL from position {position}"
-                    )
-                    # Update deck state
-                    if position in self.deck_state:
-                        self.deck_state[position]["active"] = True
-                        self.deck_state[position]["volume"] = max(
-                            0, self.deck_state[position]["volume"] - volume
-                        )
-                        await self.send_deck_update()
-                        await asyncio.sleep(1.5)
-                        self.deck_state[position]["active"] = False
-                        await self.send_deck_update()
+                await self.simulate_operation_with_state(operation, position, volume)
 
-                elif operation == "dispense":
-                    await self.send_operation_glow(position, "dispense")
-                    await self.broadcast_operation(
-                        f"Dispensing {volume} μL to position {position}"
-                    )
-                    # Update deck state
-                    if position in self.deck_state:
-                        self.deck_state[position]["active"] = True
-                        self.deck_state[position]["volume"] += volume
-                        await self.send_deck_update()
-                        await asyncio.sleep(1.5)
-                        self.deck_state[position]["active"] = False
-                        await self.send_deck_update()
+            elif command == "set_labware":
+                position = data.get("position", 1)
+                labware_type = data.get("labware_type", "empty")
+                labware_name = data.get("labware_name", "")
 
-                elif operation in ["tips_on", "tips_off", "move_to_location"]:
-                    await self.send_operation_glow(position, "move")
-                    operation_text = operation.replace("_", " ").title()
-                    await self.broadcast_operation(
-                        f"{operation_text} at position {position}"
+                # Update both state systems
+                if self.deck_state:
+                    self.deck_state.set_labware_at_nest(
+                        position, labware_type, labware_name
                     )
-                    # Update deck state
-                    if position in self.deck_state:
-                        self.deck_state[position]["active"] = True
-                        await self.send_deck_update()
-                        await asyncio.sleep(1.5)
-                        self.deck_state[position]["active"] = False
-                        await self.send_deck_update()
+
+                self._sync_simple_to_state_format(
+                    position, {"labware": labware_type, "labware_name": labware_name}
+                )
+
+                await self.send_deck_update()
+
+            elif command == "reset_deck":
+                if self.deck_state:
+                    self.deck_state.reset_all_nests()
+
+                for i in range(1, 10):
+                    self.simple_deck_state[i] = {
+                        "labware": "empty",
+                        "volume": 0,
+                        "active": False,
+                        "labware_name": "",
+                        "operation": "idle",
+                        "tips_loaded": False,
+                    }
+
+                await self.send_deck_update()
 
         except json.JSONDecodeError:
             logger.error(f"Invalid JSON: {message}")
         except Exception as e:
             logger.error(f"Error handling message: {e}")
 
-    async def simulate_transfer(self, from_pos: int, to_pos: int, volume: float):
-        """Simulate a complete transfer"""
+    async def simulate_transfer_with_state(
+        self, from_pos: int, to_pos: int, volume: float
+    ):
+        """Simulate a complete transfer using state management"""
         # Aspirate
-        await self.simulate_operation("aspirate", from_pos, volume)
+        await self.simulate_operation_with_state("aspirate", from_pos, volume)
         await asyncio.sleep(0.5)
 
         # Dispense
-        await self.simulate_operation("dispense", to_pos, volume)
+        await self.simulate_operation_with_state("dispense", to_pos, volume)
 
     async def client_handler(self, websocket):
         """Handle WebSocket connections"""
@@ -371,29 +556,37 @@ class BravoDeckVisualizer:
             await self.unregister_client(websocket)
 
     async def run_demo(self):
-        """Run demo sequence"""
+        """Run demo sequence using state management"""
         await asyncio.sleep(2)  # Wait for clients
 
         await self.setup_default_deck()
         await self.broadcast_operation("Demo starting...")
         await asyncio.sleep(1)
 
-        # Demo operations
+        # Demo operations with realistic liquid handling workflow
         operations = [
-            ("tips_on", 1, 0),
-            ("aspirate", 2, 100),
-            ("dispense", 8, 100),
-            ("aspirate", 4, 50),
-            ("dispense", 6, 50),
-            ("tips_off", 9, 0),
+            ("tips_on", 1, 0, {"tip_type": "200µL"}),
+            ("aspirate", 2, 100, {}),  # From source plate
+            ("dispense", 3, 100, {}),  # To destination plate
+            ("aspirate", 4, 50, {}),  # Buffer from reservoir
+            ("dispense", 6, 50, {}),  # To assay plate
+            ("wash", 4, 200, {"cycles": 3}),  # Wash tips
+            ("tips_off", 9, 0, {}),  # Dispose tips
         ]
 
-        for i, (op, pos, vol) in enumerate(operations):
+        for i, (op, pos, vol, extra_kwargs) in enumerate(operations):
             await self.broadcast_operation(f"Step {i+1}: {op}")
-            await self.simulate_operation(op, pos, vol)
+            await self.simulate_operation_with_state(op, pos, vol, **extra_kwargs)
             await asyncio.sleep(1)
 
         await self.broadcast_operation("Demo complete! 🎉")
+
+        # Show final state summary
+        if self.deck_state:
+            summary = self.deck_state.get_deck_summary()
+            await self.broadcast_operation(
+                f"Operations performed: {summary['deck_info']['global_operation_count']}"
+            )
 
     async def start(self, run_demo=False, serve_files=False, http_port=8080):
         """Start the server"""
@@ -447,14 +640,16 @@ class BravoDeckVisualizer:
                     await asyncio.sleep(1)
             except KeyboardInterrupt:
                 logger.info("🛑 Server stopping...")
-                return  # Changed from 'break' to 'return'
+                return
 
 
 def main():
     """Main entry point"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Bravo Deck Visualizer")
+    parser = argparse.ArgumentParser(
+        description="Bravo Deck Visualizer with State Management"
+    )
     parser.add_argument("--host", default="localhost", help="WebSocket host address")
     parser.add_argument("--port", type=int, default=8765, help="WebSocket port number")
     parser.add_argument("--http-port", type=int, default=8080, help="HTTP server port")
@@ -465,7 +660,7 @@ def main():
 
     args = parser.parse_args()
 
-    visualizer = BravoDeckVisualizer(host=args.host, port=args.port)
+    visualizer = BravoDeckVisualizerWithState(host=args.host, port=args.port)
 
     try:
         asyncio.run(

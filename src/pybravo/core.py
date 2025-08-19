@@ -6,6 +6,7 @@ from functools import wraps
 import pythoncom
 import clr
 from .utils import is_admin
+from .state import BravoDeckState, OperationStatus, LabwareType
 
 # Handle imports
 try:
@@ -81,16 +82,96 @@ def simulation_aware_method(func: Callable[..., T]) -> Callable[..., T]:
     return wrapper
 
 
+def state_tracking_method(func: Callable[..., T]) -> Callable[..., T]:
+    """Decorator to track state changes for operations"""
+
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Extract nest/plate location from arguments for state tracking
+        nest_id = None
+        operation_details = {}
+
+        # Common parameter names for nest/location identification
+        for i, arg in enumerate(args):
+            if (
+                i == 1 and isinstance(arg, int) and 1 <= arg <= 9
+            ):  # plate_location is often 2nd arg
+                nest_id = arg
+                break
+
+        # Check kwargs for location parameters
+        for param_name in ["plate_location", "nest_id", "location"]:
+            if param_name in kwargs:
+                nest_id = kwargs[param_name]
+                break
+
+        # Collect operation details from arguments
+        if hasattr(self, "_extract_operation_details"):
+            operation_details = self._extract_operation_details(
+                func.__name__, args, kwargs
+            )
+
+        # Start operation tracking
+        if nest_id and hasattr(self, "deck_state"):
+            operation_map = {
+                "aspirate": "aspirating",
+                "dispense": "dispensing",
+                "mix": "mixing",
+                "wash": "washing",
+                "move_to_location": "moving",
+                "pick_and_place": "picking",
+                "pump_reagent": "pumping",
+                "tips_on": "idle",
+                "tips_off": "idle",
+            }
+
+            operation = operation_map.get(func.__name__, "idle")
+            if operation != "idle":
+                self.deck_state.start_operation_at_nest(
+                    nest_id, operation, operation_details
+                )
+
+        try:
+            # Execute the original function
+            result = func(self, *args, **kwargs)
+
+            # Update state based on successful operation
+            if nest_id and hasattr(self, "deck_state"):
+                self._update_state_after_operation(func.__name__, nest_id, args, kwargs)
+                self.deck_state.complete_operation_at_nest(nest_id)
+
+            return result
+
+        except Exception as e:
+            # Handle errors and update state
+            if nest_id and hasattr(self, "deck_state"):
+                self.deck_state.log_error(str(e), nest_id)
+            raise
+
+    return wrapper
+
+
 class BravoDriver:
     def __init__(
-        self, profile: Optional[str] = None, simulation_mode: bool = False
+        self,
+        profile: Optional[str] = None,
+        simulation_mode: bool = False,
+        enable_state_tracking: bool = True,
     ) -> None:
         self.profile = profile
         self.simulation_mode = simulation_mode
+        self.enable_state_tracking = enable_state_tracking
         self._connected = False
         self.client = None
 
-        # Simulation state tracking
+        # Initialize state machine
+        if self.enable_state_tracking:
+            self.deck_state = BravoDeckState()
+            logging.info("State tracking enabled")
+        else:
+            self.deck_state = None
+
+        # Simulation state tracking (legacy)
         if self.simulation_mode:
             logging.info("BravoDriver initialized in SIMULATION mode")
             self._simulation_state = {
@@ -105,9 +186,85 @@ class BravoDriver:
         if not self.simulation_mode:
             if is_admin():
                 logging.warning(
-                    "Running without admin privileges may limit driver's functionality. "
+                    "Running without admin privileges may limit driver's functionality."
                 )
-            self._create_control()  # create the com object client
+            self._create_control()
+
+    def _extract_operation_details(
+        self, method_name: str, args: tuple, kwargs: dict
+    ) -> Dict[str, Any]:
+        """Extract relevant details from method arguments for state tracking"""
+        details = {"method": method_name}
+
+        if method_name == "aspirate" and len(args) > 0:
+            details.update(
+                {
+                    "volume": args[0],
+                    "distance_from_well_bottom": (
+                        args[2]
+                        if len(args) > 2
+                        else kwargs.get("distance_from_well_bottom", 0.0)
+                    ),
+                    "pre_aspirate_volume": (
+                        args[3]
+                        if len(args) > 3
+                        else kwargs.get("pre_aspirate_volume", 0.0)
+                    ),
+                }
+            )
+        elif method_name == "dispense" and len(args) > 0:
+            details.update(
+                {
+                    "volume": args[0],
+                    "empty_tips": (
+                        args[1] if len(args) > 1 else kwargs.get("empty_tips", False)
+                    ),
+                    "blow_out_volume": (
+                        args[2] if len(args) > 2 else kwargs.get("blow_out_volume", 0.0)
+                    ),
+                }
+            )
+        elif method_name == "mix" and len(args) > 0:
+            details.update(
+                {
+                    "volume": args[0],
+                    "cycles": args[3] if len(args) > 3 else kwargs.get("cycles", 1),
+                }
+            )
+        elif method_name == "wash" and len(args) > 0:
+            details.update(
+                {
+                    "volume": args[0],
+                    "cycles": args[4] if len(args) > 4 else kwargs.get("cycles", 1),
+                }
+            )
+
+        return details
+
+    def _update_state_after_operation(
+        self, method_name: str, nest_id: int, args: tuple, kwargs: dict
+    ):
+        """Update deck state after successful operation"""
+        if not self.deck_state:
+            return
+
+        if method_name == "aspirate" and len(args) > 0:
+            volume = args[0]
+            self.deck_state.update_volume_at_nest(nest_id, aspirated=volume)
+
+        elif method_name == "dispense" and len(args) > 0:
+            volume = args[0]
+            self.deck_state.update_volume_at_nest(nest_id, dispensed=volume)
+
+        elif method_name == "tips_on":
+            # Try to determine tip type from context or use default
+            tip_type = kwargs.get("tip_type", "standard")
+            self.deck_state.update_tips_at_nest(
+                nest_id, tips_on=True, tip_type=tip_type
+            )
+
+        elif method_name == "tips_off":
+            self.deck_state.update_tips_at_nest(nest_id, tips_on=False)
 
     def _create_control(self) -> None:
         """Create the control for the Bravo device"""
@@ -124,7 +281,6 @@ class BravoDriver:
         else:
             logging.warning("Bravo control already exists")
 
-    #Each method will hav
     def _handle_simulation(self, method_name: str, *args, **kwargs) -> Any:
         """Handle simulation logic for various methods"""
         if method_name in [
@@ -144,6 +300,56 @@ class BravoDriver:
         else:
             return None
 
+    # State management methods
+    def get_deck_state(self) -> Optional[BravoDeckState]:
+        """Get the current deck state manager"""
+        return self.deck_state
+
+    def get_nest_state(self, nest_id: int) -> Optional[Dict[str, Any]]:
+        """Get the state of a specific nest"""
+        if self.deck_state:
+            nest = self.deck_state.get_nest(nest_id)
+            return nest.get_summary() if nest else None
+        return None
+
+    def get_deck_summary(self) -> Dict[str, Any]:
+        """Get a summary of the entire deck state"""
+        if self.deck_state:
+            return self.deck_state.get_deck_summary()
+        return {"message": "State tracking not enabled"}
+
+    def set_labware_at_nest(
+        self, nest_id: int, labware_type: str, labware_name: str = None
+    ) -> bool:
+        """Set labware at a specific nest with state tracking"""
+        if self.deck_state:
+            success = self.deck_state.set_labware_at_nest(
+                nest_id, labware_type, labware_name
+            )
+            if success:
+                logging.info(f"Set labware '{labware_type}' at nest {nest_id}")
+            return success
+        return False
+
+    def find_labware(self, labware_type: str) -> List[int]:
+        """Find nests containing specific labware type"""
+        if self.deck_state:
+            return self.deck_state.find_nests_by_labware_type(labware_type)
+        return []
+
+    def get_active_operations(self) -> List[Dict[str, Any]]:
+        """Get all currently active operations"""
+        if self.deck_state:
+            return self.deck_state.get_active_operations()
+        return []
+
+    def reset_deck_state(self):
+        """Reset all deck state tracking"""
+        if self.deck_state:
+            self.deck_state.reset_all_nests()
+            logging.info("Deck state reset")
+
+    # Core connection methods
     def is_connected(self) -> bool:
         return self._connected and (self.client is not None or self.simulation_mode)
 
@@ -168,6 +374,282 @@ class BravoDriver:
 
         self._close()
 
+    # Enhanced operation methods with state tracking
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def aspirate(
+        self,
+        volume: float,
+        plate_location: int,
+        distance_from_well_bottom: float = 0.0,
+        pre_aspirate_volume: float = 0.0,
+        post_aspirate_volume: float = 0.0,
+        retract_distance_per_microliter: float = 0.0,
+    ) -> None:
+        """Aspirate a specified volume from a well"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            logging.info(f"Aspirating {volume} uL from plate location {plate_location}")
+            if self.simulation_mode:
+                self._simulation_state["liquid_volume"] = volume
+                self._simulation_state["last_operation"] = "aspirate"
+                return
+
+            self.client.Aspirate(
+                volume,
+                pre_aspirate_volume,
+                post_aspirate_volume,
+                plate_location,
+                distance_from_well_bottom,
+                retract_distance_per_microliter,
+            )
+        except Exception as e:
+            raise BravoCommandError(f"Failed to aspirate: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def dispense(
+        self,
+        volume: float,
+        empty_tips: bool = False,
+        blow_out_volume: float = 0.0,
+        plate_location: int = 0,
+        distance_from_well_bottom: float = 0.0,
+        retract_distance_per_microliter: float = 0.0,
+    ) -> None:
+        """Dispense a specified volume into a well"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+        try:
+            logging.info(f"Dispensing {volume} uL into plate location {plate_location}")
+            if self.simulation_mode:
+                self._simulation_state["liquid_volume"] = max(
+                    0, self._simulation_state["liquid_volume"] - volume
+                )
+                self._simulation_state["last_operation"] = "dispense"
+                return
+
+            self.client.Dispense(
+                volume,
+                empty_tips,
+                blow_out_volume,
+                plate_location,
+                distance_from_well_bottom,
+                retract_distance_per_microliter,
+            )
+        except Exception as e:
+            raise BravoCommandError(f"Failed to dispense: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def mix(
+        self,
+        volume: float,
+        pre_aspirate_volume: float,
+        blow_out_volume: float,
+        cycles: int,
+        plate_location: int,
+        distance_from_well_bottom: float,
+        retract_distance_per_microliter: float,
+    ) -> None:
+        """Mix a specified volume in a well"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            logging.info(
+                f"Mixing {volume} uL in plate location {plate_location} for {cycles} cycles"
+            )
+            if self.simulation_mode:
+                self._simulation_state["last_operation"] = "mix"
+                return
+
+            self.client.Mix(
+                volume,
+                pre_aspirate_volume,
+                blow_out_volume,
+                cycles,
+                plate_location,
+                distance_from_well_bottom,
+                retract_distance_per_microliter,
+            )
+        except Exception as e:
+            raise BravoCommandError(f"Failed to mix: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def wash(
+        self,
+        volume: float,
+        empty_tips: bool,
+        pre_aspirate_volume: float,
+        blow_out_volume: float,
+        cycles: int,
+        plate_location: int,
+        distance_from_well_bottom: float = 0.0,
+        retract_distance_per_microliter: float = 0.0,
+        pump_in_flow_speed: float = 0.0,
+        pump_out_flow_speed: float = 0.0,
+    ) -> None:
+        """Wash Tips"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+        try:
+            logging.info(
+                f"Washing {volume} uL in plate location {plate_location} for {cycles} cycles"
+            )
+            if self.simulation_mode:
+                self._simulation_state["last_operation"] = "wash"
+                return
+
+            self.client.Wash(
+                volume,
+                empty_tips,
+                pre_aspirate_volume,
+                blow_out_volume,
+                cycles,
+                plate_location,
+                distance_from_well_bottom,
+                retract_distance_per_microliter,
+                pump_in_flow_speed,
+                pump_out_flow_speed,
+            )
+        except Exception as e:
+            raise BravoCommandError(f"Failed to wash: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def tips_on(self, plate_location: int, tip_type: str = "standard") -> None:
+        """Turn on tips at a specific plate location"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            logging.info(f"Turning on tips at plate location {plate_location}")
+            if self.simulation_mode:
+                self._simulation_state["tips_loaded"] = True
+                return
+
+            self.client.TipsOn(plate_location)
+        except Exception as e:
+            raise BravoCommandError(f"Failed to turn on tips: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def tips_off(self, plate_location: int) -> None:
+        """Turn off tips at a specific plate location"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            logging.info(f"Turning off tips at plate location {plate_location}")
+            if self.simulation_mode:
+                self._simulation_state["tips_loaded"] = False
+                return
+
+            self.client.TipsOff(plate_location)
+        except Exception as e:
+            raise BravoCommandError(f"Failed to turn off tips: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def move_to_location(self, plate_location: int, only_z: bool = False) -> None:
+        """Move to a specific plate location"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            logging.info(f"Moving to plate location {plate_location}, only_z={only_z}")
+            if self.simulation_mode:
+                self._simulation_state["current_position"] = {
+                    "location": plate_location
+                }
+                self._simulation_state["last_operation"] = "move"
+                return
+
+            self.client.MoveToLocation(plate_location, only_z)
+        except Exception as e:
+            raise BravoCommandError(f"Failed to move to location: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def pick_and_place(
+        self,
+        start_location: int,
+        end_location: int,
+        gripper_offset: float,
+        labware_thickness: float,
+    ) -> None:
+        """Perform a pick and place operation"""
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+
+        try:
+            logging.info(
+                f"Picking from location {start_location} and placing at {end_location} with gripper offset {gripper_offset}"
+            )
+            if self.simulation_mode:
+                self._simulation_state["last_operation"] = "pick_and_place"
+                return
+
+            self.client.PickAndPlace(start_location, end_location, gripper_offset)
+
+            # Update state tracking for labware movement
+            if self.deck_state:
+                # Get labware from start location
+                start_nest = self.deck_state.get_nest(start_location)
+                if start_nest and start_nest.labware_type != LabwareType.EMPTY:
+                    labware_type = start_nest.labware_type
+                    labware_name = start_nest.labware_name
+
+                    # Clear start location
+                    self.deck_state.set_labware_at_nest(start_location, "empty")
+
+                    # Set end location
+                    self.deck_state.set_labware_at_nest(
+                        end_location, labware_type.value, labware_name
+                    )
+
+        except Exception as e:
+            raise BravoCommandError(f"Failed to pick and place: {e}")
+
+    @state_tracking_method
+    @simulation_aware_method
+    @sta_com_method
+    def pump_reagent(
+        self,
+        plate_location: int,
+        fill_reservoir: bool,
+        pump_speed: float,
+        pump_time: float,
+    ) -> None:
+        if not self.is_connected():
+            raise BravoCommandError("Device not connected")
+        try:
+            logging.info(
+                f"Pumping reagent at plate location {plate_location}, fill_reservoir={fill_reservoir}, pump_speed={pump_speed}, pump_time={pump_time}"
+            )
+            if self.simulation_mode:
+                self._simulation_state["last_operation"] = "pump_reagent"
+                return
+
+            self.client.PumpReagent(
+                plate_location, fill_reservoir, pump_speed, pump_time
+            )
+        except Exception as e:
+            raise BravoCommandError(f"Failed to pump reagent: {e}")
+
+    # Non-state-tracking methods (these don't interact with specific nests)
     @simulation_aware_method
     @sta_com_method
     def home_w(self) -> None:
@@ -203,39 +685,6 @@ class BravoDriver:
             raise BravoCommandError(f"Failed to show About box: {e}")
 
     @simulation_aware_method
-    @sta_com_method
-    def aspirate(
-        self,
-        volume: float,
-        plate_location: int,
-        distance_from_well_bottom: float = 0.0,
-        pre_aspirate_volume: float = 0.0,
-        post_aspirate_volume: float = 0.0,
-        retract_distance_per_microliter: float = 0.0,
-    ) -> None:
-        """Aspirate a specified volume from a well"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-
-        try:
-            logging.info(f"Aspirating {volume} uL from plate location {plate_location}")
-            if self.simulation_mode:
-                self._simulation_state["liquid_volume"] = volume
-                self._simulation_state["last_operation"] = "aspirate"
-                return
-
-            self.client.Aspirate(
-                volume,
-                pre_aspirate_volume,
-                post_aspirate_volume,
-                plate_location,
-                distance_from_well_bottom,
-                retract_distance_per_microliter,
-            )
-        except Exception as e:
-            raise BravoCommandError(f"Failed to aspirate: {e}")
-
-    @simulation_aware_method
     def show_about(self) -> None:
         """Show the About dialog"""
         if not self.is_connected():
@@ -256,45 +705,18 @@ class BravoDriver:
             logging.info("Aborting current operation")
             if self.simulation_mode:
                 self._simulation_state["last_operation"] = "abort"
-                return
 
-            self.client.Abort()
+            # Mark all active operations as aborted
+            if self.deck_state:
+                active_ops = self.deck_state.get_active_operations()
+                for op in active_ops:
+                    self.deck_state.complete_operation_at_nest(op["nest_id"])
+
+            if not self.simulation_mode:
+                self.client.Abort()
+
         except Exception as e:
             raise BravoCommandError(f"Failed to abort operation: {e}")
-
-    @simulation_aware_method
-    @sta_com_method
-    def dispense(
-        self,
-        volume: float,
-        empty_tips: bool = False,
-        blow_out_volume: float = 0.0,
-        plate_location: int = 0,
-        distance_from_well_bottom: float = 0.0,
-        retract_distance_per_microliter: float = 0.0,
-    ) -> None:
-        """Dispense a specified volume into a well"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-        try:
-            logging.info(f"Dispensing {volume} uL into plate location {plate_location}")
-            if self.simulation_mode:
-                self._simulation_state["liquid_volume"] = max(
-                    0, self._simulation_state["liquid_volume"] - volume
-                )
-                self._simulation_state["last_operation"] = "dispense"
-                return
-
-            self.client.Dispense(
-                volume,
-                empty_tips,
-                blow_out_volume,
-                plate_location,
-                distance_from_well_bottom,
-                retract_distance_per_microliter,
-            )
-        except Exception as e:
-            raise BravoCommandError(f"Failed to dispense: {e}")
 
     @simulation_aware_method
     def enumerate_profiles(self) -> List[str]:
@@ -402,91 +824,6 @@ class BravoDriver:
         except Exception as e:
             raise BravoCommandError(f"Failed to initialize device: {e}")
 
-    def __del__(self):
-        """Destructor to ensure proper cleanup"""
-        if self.is_connected():
-            try:
-                logging.info("Cleaning up BravoDriver resources")
-                if not self.simulation_mode:
-                    self._close()
-                else:
-                    self._connected = False
-            except Exception as e:
-                logging.error(f"Error during cleanup: {e}")
-
-    def _close(self) -> None:
-        """Close the Bravo device connection"""
-        if self.simulation_mode:
-            logging.info("SIMULATION: Bravo device connection closed")
-            self._connected = False
-            return
-
-        if self.client:
-            try:
-                logging.info("Closing Bravo device connection")
-                self.client.Close()
-                self._connected = False
-            except Exception as e:
-                raise BravoCommandError(f"Failed to close device: {e}")
-        else:
-            logging.warning("Bravo device client is not initialized")
-
-    @simulation_aware_method
-    @sta_com_method
-    def mix(
-        self,
-        volume: float,
-        pre_aspirate_volume: float,
-        blow_out_volume: float,
-        cycles: int,
-        plate_location: int,
-        distance_from_well_bottom: float,
-        retract_distance_per_microliter: float,
-    ) -> None:
-        """Mix a specified volume in a well"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-
-        try:
-            logging.info(
-                f"Mixing {volume} uL in plate location {plate_location} for {cycles} cycles"
-            )
-            if self.simulation_mode:
-                self._simulation_state["last_operation"] = "mix"
-                return
-
-            self.client.Mix(
-                volume,
-                pre_aspirate_volume,
-                blow_out_volume,
-                cycles,
-                plate_location,
-                distance_from_well_bottom,
-                retract_distance_per_microliter,
-            )
-        except Exception as e:
-            raise BravoCommandError(f"Failed to mix: {e}")
-
-    @simulation_aware_method
-    @sta_com_method
-    def move_to_location(self, plate_location: int, only_z: bool = False) -> None:
-        """Move to a specific plate location"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-
-        try:
-            logging.info(f"Moving to plate location {plate_location}, only_z={only_z}")
-            if self.simulation_mode:
-                self._simulation_state["current_position"] = {
-                    "location": plate_location
-                }
-                self._simulation_state["last_operation"] = "move"
-                return
-
-            self.client.MoveToLocation(plate_location, only_z)
-        except Exception as e:
-            raise BravoCommandError(f"Failed to move to location: {e}")
-
     @simulation_aware_method
     @sta_com_method
     def move_to_position(
@@ -506,56 +843,6 @@ class BravoDriver:
 
         except Exception as e:
             raise BravoCommandError(f"Failed to move to position: {e}")
-
-    @simulation_aware_method
-    @sta_com_method
-    def pick_and_place(
-        self,
-        start_location: int,
-        end_location: int,
-        gripper_offset: float,
-        labware_thickness: float,
-    ) -> None:
-        """Perform a pick and place operation"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-
-        try:
-            logging.info(
-                f"Picking from location {start_location} and placing at {end_location} with gripper offset {gripper_offset}"
-            )
-            if self.simulation_mode:
-                self._simulation_state["last_operation"] = "pick_and_place"
-                return
-
-            self.client.PickAndPlace(start_location, end_location, gripper_offset)
-        except Exception as e:
-            raise BravoCommandError(f"Failed to pick and place: {e}")
-
-    @simulation_aware_method
-    @sta_com_method
-    def pump_reagent(
-        self,
-        plate_location: int,
-        fill_reservoir: bool,
-        pump_speed: float,
-        pump_time: float,
-    ) -> None:
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-        try:
-            logging.info(
-                f"Pumping reagent at plate location {plate_location}, fill_reservoir={fill_reservoir}, pump_speed={pump_speed}, pump_time={pump_time}"
-            )
-            if self.simulation_mode:
-                self._simulation_state["last_operation"] = "pump_reagent"
-                return
-
-            self.client.PumpReagent(
-                plate_location, fill_reservoir, pump_speed, pump_time
-            )
-        except Exception as e:
-            raise BravoCommandError(f"Failed to pump reagent: {e}")
 
     @simulation_aware_method
     @sta_com_method
@@ -583,9 +870,14 @@ class BravoDriver:
             logging.info(f"Setting labware {labware_type} at location {plate_location}")
             if self.simulation_mode:
                 self._simulation_state[f"labware_{plate_location}"] = labware_type
-                return
 
-            self.client.SetLabwareAtLocation(plate_location, labware_type)
+            # Update state tracking
+            if self.deck_state:
+                self.deck_state.set_labware_at_nest(plate_location, labware_type)
+
+            if not self.simulation_mode:
+                self.client.SetLabwareAtLocation(plate_location, labware_type)
+
         except Exception as e:
             raise BravoCommandError(f"Failed to set labware at location: {e}")
 
@@ -671,86 +963,41 @@ class BravoDriver:
         except Exception as e:
             raise BravoCommandError(f"Failed to show liquid library editor: {e}")
 
-    @simulation_aware_method
-    @sta_com_method
-    def tips_off(self, plate_location: int) -> None:
-        """Turn off tips at a specific plate location"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-
-        try:
-            logging.info(f"Turning off tips at plate location {plate_location}")
-            if self.simulation_mode:
-                self._simulation_state["tips_loaded"] = False
-                return
-
-            self.client.TipsOff(plate_location)
-        except Exception as e:
-            raise BravoCommandError(f"Failed to turn off tips: {e}")
-
-    @simulation_aware_method
-    @sta_com_method
-    def tips_on(self, plate_location: int) -> None:
-        """Turn on tips at a specific plate location"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-
-        try:
-            logging.info(f"Turning on tips at plate location {plate_location}")
-            if self.simulation_mode:
-                self._simulation_state["tips_loaded"] = True
-                return
-
-            self.client.TipsOn(plate_location)
-        except Exception as e:
-            raise BravoCommandError(f"Failed to turn on tips: {e}")
-
-    @simulation_aware_method
-    @sta_com_method
-    def wash(
-        self,
-        volume: float,
-        empty_tips: bool,
-        pre_aspirate_volume: float,
-        blow_out_volume: float,
-        cycles: int,
-        plate_location: int,
-        distance_from_well_bottom: float = 0.0,
-        retract_distance_per_microliter: float = 0.0,
-        pump_in_flow_speed: float = 0.0,
-        pump_out_flow_speed: float = 0.0,
-    ) -> None:
-        """Wash Tips"""
-        if not self.is_connected():
-            raise BravoCommandError("Device not connected")
-        try:
-            logging.info(
-                f"Washing {volume} uL in plate location {plate_location} for {cycles} cycles"
-            )
-            if self.simulation_mode:
-                self._simulation_state["last_operation"] = "wash"
-                return
-
-            self.client.Wash(
-                volume,
-                empty_tips,
-                pre_aspirate_volume,
-                blow_out_volume,
-                cycles,
-                plate_location,
-                distance_from_well_bottom,
-                retract_distance_per_microliter,
-                pump_in_flow_speed,
-                pump_out_flow_speed,
-            )
-        except Exception as e:
-            raise BravoCommandError(f"Failed to wash: {e}")
-
+    # Legacy simulation methods for backward compatibility
     def get_simulation_state(self) -> Optional[Dict[str, Any]]:
         """Get the current simulation state (only available in simulation mode)"""
         if not self.simulation_mode:
             return None
         return self._simulation_state.copy()
+
+    def __del__(self):
+        """Destructor to ensure proper cleanup"""
+        if self.is_connected():
+            try:
+                logging.info("Cleaning up BravoDriver resources")
+                if not self.simulation_mode:
+                    self._close()
+                else:
+                    self._connected = False
+            except Exception as e:
+                logging.error(f"Error during cleanup: {e}")
+
+    def _close(self) -> None:
+        """Close the Bravo device connection"""
+        if self.simulation_mode:
+            logging.info("SIMULATION: Bravo device connection closed")
+            self._connected = False
+            return
+
+        if self.client:
+            try:
+                logging.info("Closing Bravo device connection")
+                self.client.Close()
+                self._connected = False
+            except Exception as e:
+                raise BravoCommandError(f"Failed to close device: {e}")
+        else:
+            logging.warning("Bravo device client is not initialized")
 
     def __enter__(self):
         """Context manager support"""
